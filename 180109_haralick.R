@@ -1,5 +1,4 @@
 
-library(abind)
 library(jsonlite)
 library(ggplot2)
 library(raster)
@@ -54,13 +53,13 @@ procImage <- function(i){
   plot(clmp)
   dev.off()
 
-  ft1 = computeFeatures(as.matrix(!is.na(clmp)), as.matrix(r1),xname = 'band1')
+  ft1 = computeFeatures(as.matrix(!is.na(clmp)), as.matrix(r1),xname = 'band1',)
   ft2 = computeFeatures(as.matrix(!is.na(clmp)), as.matrix(r2),xname = 'band2')
   cbind.data.frame(train[i,c(1,3,2)],ft1,ft2)
   
 }
 
-
+randomForest::rfImpute()
 # plyr::ldply(1:10, procImage)
 # featDf <- plyr::ldply(1:nrow(train), procImage)
 # saveRDS(featDf,file='featureDf.rdata')
@@ -88,10 +87,36 @@ nrow(trainY)
 
 fit <- randomForest(x=trainX,y=trainY,ntree=5e3)
 
-fit
-varImpPlot(fit)
+actual <- as.integer(as.character(fit$y))
+pred <- fit$votes[,2]
+Metrics::logLoss(actual,pred)
 
-# buffer clump
+
+fit
+plot(fit)
+vi <- varImpPlot(fit)
+topVars <- vi %>%
+  data.frame() %>%
+  mutate(var = row.names(.)) %>%
+  arrange(desc(MeanDecreaseGini)) %>%
+  slice(1:10)
+
+
+trainX %>%
+  select_(.dots = topVars$var) ->
+  trainXsub
+
+fit <- randomForest(x=trainXsub,y=trainY,ntree=5e3)
+fit
+actual <- as.integer(as.character(fit$y))
+pred <- fit$votes[,2]
+Metrics::logLoss(actual,pred)
+
+
+
+
+# grow clump
+# make sure it is in center
 # stats from wider image
 # scale image
 # gray levels used for features
