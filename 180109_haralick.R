@@ -23,13 +23,13 @@ ggplot(train)+geom_density(aes(x=inc_angle,fill=factor(is_iceberg)),alpha=0.5)
 
 
 procImage <- function(i){
-  
+  # i <- 60
   print(i)
-  r1 <- raster(matrix(band_1[[i]],nrow = 75,ncol = 75)) %>% 
-    focal(.,w=matrix(1,3,3), fun=median,pad=T, padValue= mean(band_1[[i]]))
-  r2 <- raster(matrix(band_2[[i]],nrow = 75,ncol = 75)) %>% 
-    focal(.,w=matrix(1,3,3), fun=median,pad=T, padValue= mean(band_2[[i]]))
-  stk <- stack(r1,r2)
+  r1 <- raster(matrix(band_1[[i]],nrow = 75,ncol = 75))
+  r1mf <- focal(r1,w=matrix(1,3,3), fun=median,pad=T, padValue= mean(band_1[[i]]))
+  r2 <- raster(matrix(band_2[[i]],nrow = 75,ncol = 75))
+  r2mf <- focal(r2,w=matrix(1,3,3), fun=median,pad=T, padValue= mean(band_2[[i]]))
+  stk <- stack(r1mf,r2mf)
   
   df <- rasterToPoints(stk) %>% data.frame()
   hc <- hclust(dist(df))
@@ -45,35 +45,30 @@ procImage <- function(i){
     filter(layer.1>quantile(layer.1,0.99)) %>%
     select(x,y)
   clmp <- clump(r3-1)
-  max(clmp[],na.rm = T)
+  # max(clmp[],na.rm = T)
   # points(q99)
   extObj <- modal(extract(clmp,q99),na.rm=T)
   clmp[clmp!=extObj] <- NA
   
+  clmp <- focal(clmp,w=matrix(1,7,7),max,na.rm=T)
   plot(clmp)
+  # mask(r1,clmp) %>% plot
+  
   dev.off()
 
-  ft1 = computeFeatures(as.matrix(!is.na(clmp)), as.matrix(r1),xname = 'band1',)
+  ft1 = computeFeatures(as.matrix(!is.na(clmp)), as.matrix(r1),xname = 'band1')
   ft2 = computeFeatures(as.matrix(!is.na(clmp)), as.matrix(r2),xname = 'band2')
   cbind.data.frame(train[i,c(1,3,2)],ft1,ft2)
   
 }
 
-randomForest::rfImpute()
-# plyr::ldply(1:10, procImage)
-# featDf <- plyr::ldply(1:nrow(train), procImage)
+# plyr::ldply(10:20, procImage)
+featDf <- plyr::ldply(1:nrow(train), procImage)
 # saveRDS(featDf,file='featureDf.rdata')
 
 featDf <- readRDS('featureDf.rdata')
 
 library(randomForest)
-# approximate NA incidence angles
-str(featDf)
-approxNA()
-
-# split into traing/validation
-summary(featDf)
-# load and process test images
 
 trainX <- featDf %>% 
   select(-id,-is_iceberg) %>%
@@ -114,7 +109,7 @@ Metrics::logLoss(actual,pred)
 
 
 
-
+# don't use median filtered
 # grow clump
 # make sure it is in center
 # stats from wider image
