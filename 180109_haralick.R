@@ -30,7 +30,8 @@ edgeCells <- raster(matrix(band_2[[1]],nrow = 75,ncol = 75)) %>%
   select(x,y)
 
 
-procImage <- function(i){
+
+procImage <- function(i,trainSet=T,save=T){
   # i <- 14
   print(i)
   r1 <- raster(matrix(band_1[[i]],nrow = 75,ncol = 75))
@@ -38,21 +39,18 @@ procImage <- function(i){
   r2 <- raster(matrix(band_2[[i]],nrow = 75,ncol = 75))
   r2mf <- focal(r2,w=matrix(1,3,3), fun=median,pad=T, padValue= mean(band_2[[i]]))
   stk <- stack(r1mf,r2mf)
-
-
+  
   df <- rasterToPoints(stk) %>% data.frame()
   hc <- hclust(dist(df))
   c <- cutree(hc, k = 2)
   # ggplot(df)+geom_point(aes(x=layer.1,y=layer.2,col=c))
   r3 <- raster(t(matrix(c,nrow = 75,ncol = 75)))
-
+  
   clmp <- clump(r3-1)
   clmpDf <- rasterToPoints(clmp) %>% data.frame()
   
   # if there is more than one clump we must choose one
   if(length(unique(clmpDf$clumps))>1){
-    
-    
     
     edgeClumps <- extract(clmp,edgeCells) %>%
       .[!is.na(.)] %>%
@@ -76,7 +74,7 @@ procImage <- function(i){
     nonEdgeClumps <- filter(clumpInfo,!hitsEdge)
     
     if(nrow(nonEdgeClumps)) clumpInfo <- nonEdgeClumps
-
+    
     # # choose the clump with the most cells in the top percentile of band 1
     # q99 <- df %>%
     #   filter(layer.1>quantile(layer.1,0.99)) %>%
@@ -85,28 +83,44 @@ procImage <- function(i){
     # points(q99)
     # extObj <- modal(extract(clmp,q99),na.rm=T)
     extObj <- filter(clumpInfo,meanRank==min(meanRank))$clumps[1]
-
+    
   } else {
     extObj <- 1
-    }
-
+  }
+  
   # slected clump
   clmp[clmp!=extObj] <- NA
   # grow clump
-  clmp <- focal(clmp,w=matrix(1,5,5),max,na.rm=T)
-  
-  png(paste0('output/clump',i,'.png'),width = 800,height =800)
+  clmp2 <- focal(clmp,w=matrix(1,3,3),max,na.rm=T)
+  clmp2[clmp2==-Inf] <- NA
+  clmp2 <- !is.na(clmp2)
+
+  if(trainSet){
+    fld = 'output/train/'
+    coli = c(1,3,2)
+  } else {
+    fld = 'output/test/'
+    coli = c(1,2)
+  }
+  clmp2 %>%
+    SDMTools::asc.from.raster() %>%
+    adehabitat::asc2spixdf() %>%
+    rgdal::writeGDAL(.,paste0(fld,train$id[i],'.png'))
+
+  if(save) png(paste0(fld,'clump',i,'.png'),width = 800,height = 800)
   par(mfrow=c(2,2))
   plot(r1)
   plot(r2)
   plot(r3)
-  plot(clmp)
+  plot(clmp2)
+  
   # mask(r1,clmp) %>% plot
-  dev.off()
-
-  ft1 = computeFeatures(as.matrix(!is.na(clmp)), as.matrix(r1mf),xname = 'band1')
-  ft2 = computeFeatures(as.matrix(!is.na(clmp)), as.matrix(r2mf),xname = 'band2')
-  cbind.data.frame(train[i,c(1,3,2)],ft1,ft2)
+  if(save) dev.off()
+  
+  ft1 = computeFeatures(as.matrix(clmp2), as.matrix(r1mf),xname = 'band1')
+  ft2 = computeFeatures(as.matrix(clmp2), as.matrix(r2mf),xname = 'band2')
+  
+  cbind.data.frame(train[i,coli],ft1,ft2)
   
 }
 
@@ -114,7 +128,7 @@ procImage <- function(i){
 featDf <- plyr::ldply(1:nrow(train), procImage)
 saveRDS(featDf,file='featureDf.rdata')
 
-# featDf <- readRDS('featureDf.rdata')
+featDf <- readRDS('featureDf.rdata')
 
 library(randomForest)
 
@@ -130,19 +144,19 @@ nrow(trainY)
 
 fit <- randomForest(x=trainX,y=trainY,ntree=5e3)
 fit
+saveRDS(fit,'orig_fit.Rdata')
+
 actual <- as.integer(as.character(fit$y))
 pred <- fit$votes[,2]
 Metrics::logLoss(actual,pred)
 
-fit
-fit
 plot(fit)
 vi <- varImpPlot(fit)
 topVars <- vi %>%
   data.frame() %>%
   mutate(var = row.names(.)) %>%
   arrange(desc(MeanDecreaseGini)) %>%
-  slice(1:10)
+  slice(1:25)
 
 
 trainX %>%
@@ -168,9 +182,6 @@ train[fit$predicted!=fit$y,]
 # gray levels used for features
 # compute features at different distances
 # supervised model for extracting object
-
-corLocal
-MoranLocal
 
 
 
